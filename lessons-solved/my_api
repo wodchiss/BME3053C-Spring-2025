@@ -1,0 +1,90 @@
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel, EmailStr, Field
+from typing import List, Optional
+from datetime import datetime
+import uuid
+
+# Initialize FastAPI app
+app = FastAPI(title="Patient Management API")
+
+# Setup security
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# Data Models
+class Patient(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    first_name: str
+    last_name: str
+    date_of_birth: str
+    email: EmailStr
+    blood_type: Optional[str] = None
+    medical_history: Optional[List[str]] = []
+    created_at: datetime = Field(default_factory=datetime.now)
+
+# Mock database
+patients_db = {}
+
+# Helper function for authentication
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    if token != "mock_token":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+# Routes
+@app.post("/patients/", response_model=Patient)
+async def create_patient(
+    patient: Patient,
+    current_user: str = Depends(get_current_user)
+):
+    patients_db[patient.id] = patient
+    return patient
+
+@app.get("/patients/", response_model=List[Patient])
+async def get_patients(current_user: str = Depends(get_current_user)):
+    return list(patients_db.values())
+
+@app.get("/patients/{patient_id}", response_model=Patient)
+async def get_patient(
+    patient_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    if patient_id not in patients_db:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return patients_db[patient_id]
+
+@app.put("/patients/{patient_id}", response_model=Patient)
+async def update_patient(
+    patient_id: str,
+    patient_update: Patient,
+    current_user: str = Depends(get_current_user)
+):
+    if patient_id not in patients_db:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    patients_db[patient_id] = patient_update
+    return patient_update
+
+@app.delete("/patients/{patient_id}")
+async def delete_patient(
+    patient_id: str,
+    current_user: str = Depends(get_current_user)
+):
+    if patient_id not in patients_db:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    del patients_db[patient_id]
+    return {"message": "Patient deleted successfully"}
+
+# Mock authentication endpoint
+@app.post("/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    if form_data.username == "admin" and form_data.password == "secret":
+        return {"access_token": "mock_token", "token_type": "bearer"}
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrect username or password",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
